@@ -1,0 +1,1080 @@
+.586
+.model flat, stdcall
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;includem biblioteci, si declaram ce functii vrem sa importam
+includelib msvcrt.lib
+extern exit: proc
+extern malloc: proc
+extern memset: proc
+
+includelib canvas.lib
+extern BeginDrawing: proc
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;declaram simbolul start ca public - de acolo incepe executia
+public start
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;sectiunile programului, date, respectiv cod
+.data
+;aici declaram date
+window_title DB "Exemplu proiect desenare",0
+area_width EQU 500
+area_height EQU 700
+area DD 0
+
+counter DD 0 ; numara evenimentele de tip timer
+tru_fals DD 0 ; cand sa opreasca procedura 
+
+arg1 EQU 8
+arg2 EQU 12
+arg3 EQU 16
+arg4 EQU 20
+
+frameHeight equ 160
+frameWidth equ 80
+frameBorderWidth equ 5
+frameBeginningX equ 100
+frameBeginningY equ 80
+pozitie_x dd 240
+pozitie_y dd 250
+
+
+op dd 0
+piesa dd 0
+piesanext dd 0
+stanga dd 0
+dreapta dd 0
+jocterminat dd 0
+deletelinie dd 20
+var_scade dd 0
+index dd 0
+scor dd 0
+newx dd 0
+newy dd 0
+
+
+
+symbol_width EQU 10
+symbol_height EQU 20
+include digits.inc
+include letters.inc
+include piese1.inc
+include piese2.inc
+
+.code
+; procedura make_text afiseaza o litera sau o cifra la coordonatele date
+; arg1 - simbolul de afisat (litera sau cifra)
+; arg2 - pointer la vectorul de pixeli
+; arg3 - pos_x
+; arg4 - pos_y
+make_text proc
+	push ebp
+	mov ebp, esp
+	pusha
+	
+	mov eax, [ebp+arg1] ; citim simbolul de afisat
+	cmp eax, 'A'
+	jl make_digit
+	cmp eax, 'Z'
+	jg make_digit
+	sub eax, 'A'
+	lea esi, letters
+	jmp draw_text
+make_digit:
+	cmp eax, '0'
+	jl make_space
+	cmp eax, '9'
+	jg make_space
+	sub eax, '0'
+	lea esi, digits
+	jmp draw_text
+make_space:	
+	mov eax, 26 ; de la 0 pana la 25 sunt litere, 26 e space
+	lea esi, letters
+	
+draw_text:
+	mov ebx, symbol_width
+	mul ebx
+	mov ebx, symbol_height
+	mul ebx
+	add esi, eax
+	mov ecx, symbol_height
+bucla_simbol_linii:
+	mov edi, [ebp+arg2] ; pointer la matricea de pixeli
+	mov eax, [ebp+arg4] ; pointer la coord y
+	add eax, symbol_height
+	sub eax, ecx
+	mov ebx, area_width
+	mul ebx
+	add eax, [ebp+arg3] ; pointer la coord x
+	shl eax, 2 ; inmultim cu 4, avem un DWORD per pixel
+	add edi, eax
+	push ecx
+	mov ecx, symbol_width
+bucla_simbol_coloane:
+	cmp byte ptr [esi], 0
+	je simbol_pixel_alb
+	mov dword ptr [edi], 0
+	jmp simbol_pixel_next
+simbol_pixel_alb:
+	mov dword ptr [edi], 0FFFFFFh
+simbol_pixel_next:
+	inc esi
+	add edi, 4
+	loop bucla_simbol_coloane
+	pop ecx
+	loop bucla_simbol_linii
+	popa
+	mov esp, ebp
+	pop ebp
+	ret
+make_text endp
+
+; un macro ca sa apelam mai usor desenarea simbolului
+make_text_macro macro symbol, drawArea, x, y
+	push y
+	push x
+	push drawArea
+	push symbol
+	call make_text
+	add esp, 16
+endm
+
+; CARE DESENEAZA PIESELE:
+make_pece proc
+	push ebp
+	mov ebp, esp
+	pusha
+	
+	mov eax, [ebp+arg1] ; citim simbolul de afisat
+	
+	lea esi, piese1
+	
+	
+draw_text:
+	mov ebx, 20
+	mul ebx
+	mov ebx, 30
+	mul ebx
+	mov ebx, 4 
+	mul ebx
+	add esi, eax
+	mov ecx, 30
+bucla_simbol_linii:
+	mov edi, [ebp+arg2] ; pointer la matricea de pixeli
+	mov eax, [ebp+arg4] ; pointer la coord y
+	add eax, 30
+	sub eax, ecx
+	mov ebx, area_width
+	mul ebx
+	add eax, [ebp+arg3] ; pointer la coord x
+	shl eax, 2 ; inmultim cu 4, avem un DWORD per pixel
+	add edi, eax
+	push ecx
+	mov ecx, 20
+bucla_simbol_coloane:
+	cmp dword ptr [esi], 0
+	je simbol_pixel_next
+	cmp dword ptr [esi], 0000001h
+	je simbol_pixel_alb
+	mov eax, dword ptr [esi]
+	mov dword ptr [edi], eax
+	jmp simbol_pixel_next
+	
+	simbol_pixel_alb:
+	mov dword ptr [edi], 0
+	
+
+simbol_pixel_next:
+	add esi,4
+	add edi, 4
+	loop bucla_simbol_coloane
+	pop ecx
+	loop bucla_simbol_linii
+	popa
+	mov esp, ebp
+	pop ebp
+	ret
+make_pece endp
+
+
+make_pece_macro macro symbol, drawArea, x, y
+	push y
+	push x
+	push drawArea
+	push symbol
+	call make_pece
+	add esp, 16
+endm
+
+
+
+;STOP PIESE
+stop_piesa proc
+    push ebp
+	mov ebp, esp
+	pusha
+	
+	cmp piesa,0
+	je piesa0
+	cmp piesa,1
+	je piesa1
+	cmp piesa,2
+	je piesa2
+	cmp piesa,3
+	je piesa3
+	cmp piesa,4
+	je piesa4
+	jmp final
+
+piesa0:
+	mov eax, pozitie_y
+	add eax, 30
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 30
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,10
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+piesa1:
+	mov eax, pozitie_y
+	add eax, 30
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 30
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,10
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+piesa2:
+	mov eax, pozitie_y
+	add eax, 20
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 30
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x 
+	add eax,10
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+piesa3:
+	mov eax, pozitie_y
+	add eax, 30
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+	
+piesa4:
+	mov eax, pozitie_y
+	add eax, 10
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+	
+oprire:
+	mov op , 1 
+
+final:
+	popa
+	mov esp, ebp
+	pop ebp
+	ret
+stop_piesa endp
+
+stop_piesastanga proc
+    push ebp
+	mov ebp, esp
+	pusha
+	
+	cmp piesa,0
+	je piesa0
+	cmp piesa,1
+	je piesa1
+	cmp piesa,2
+	je piesa2
+	cmp piesa,3
+	je piesa3
+	cmp piesa,4
+	je piesa4
+	jmp final
+
+piesa0:
+	mov eax, pozitie_y
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 10
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 20
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+piesa1:
+	mov eax, pozitie_y
+	add eax, 10
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 20
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+piesa2:
+mov eax, pozitie_y
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 20
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,9
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+piesa3:
+	mov eax, pozitie_y
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 10
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 20
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+	
+piesa4:
+	mov eax, pozitie_y
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	sub eax,1
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+	
+oprire:
+	mov stanga , 1 
+
+final:
+	popa
+	mov esp, ebp
+	pop ebp
+	ret
+stop_piesastanga endp
+
+stop_piesadreapta proc
+    push ebp
+	mov ebp, esp
+	pusha
+	
+	cmp piesa,0
+	je piesa0
+	cmp piesa,1
+	je piesa1
+	cmp piesa,2
+	je piesa2
+	cmp piesa,3
+	je piesa3
+	cmp piesa,4
+	je piesa4
+	jmp final
+
+piesa0:
+	mov eax, pozitie_y
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,10
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 20
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,20
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+piesa1:
+	mov eax, pozitie_y
+	add eax, 10
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax, 20 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 30
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax, 20 
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+piesa2:
+    mov eax, pozitie_y
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,10
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 20
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,20
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 30
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,20
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+piesa3:
+	mov eax, pozitie_y
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,10
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 10
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,10
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	mov eax, pozitie_y
+	add eax, 20
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,10
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+	
+piesa4:
+	mov eax, pozitie_y
+	mov ebx, area_width
+	mul ebx
+	add eax, pozitie_x
+	add eax,10
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	jne oprire
+	jmp final
+	
+	
+oprire:
+	mov dreapta , 1 
+
+final:
+	popa
+	mov esp, ebp
+	pop ebp
+	ret
+stop_piesadreapta endp
+
+
+Randpiesa macro piesa
+	rdtsc
+	mov ebx, 5
+	mov edx, 0
+	div ebx
+	mov piesa, edx
+endm
+
+
+gameover proc
+
+    push ebp
+	mov ebp, esp
+	pusha
+	make_text_macro 'G', area, 230, 350
+	make_text_macro 'A', area, 240, 350
+	make_text_macro 'M', area, 250, 350
+	make_text_macro 'E', area, 260, 350
+
+	
+	make_text_macro 'O', area, 230, 370
+	make_text_macro 'V', area, 240, 370
+	make_text_macro 'E', area, 250, 370
+	make_text_macro 'R', area, 260, 370
+	popa
+	mov esp, ebp
+	pop ebp
+	ret
+gameover endp
+
+
+linie_plina proc
+    push ebp
+	mov ebp, esp
+	pusha
+	mov var_scade, 0
+	mov ecx, 18
+
+	
+bucla_comparare:	
+    push ecx
+    mov ecx, 10
+	mov ebx, 0
+	
+	comparare:
+	push ebx
+	mov eax, 445
+	sub eax, var_scade
+	mov ebx, area_width
+	mul ebx
+	add eax, 205
+	pop ebx
+	add eax, ebx
+	shl eax, 2 
+	add eax, area
+	cmp dword ptr[eax], 0
+	je next_line
+	add ebx,10
+	loop comparare
+	jmp gasit
+	next_line:
+	add var_scade, 10
+	pop ecx
+	loop bucla_comparare
+	jmp final
+	
+	gasit:
+	pop ecx
+	mov eax, var_scade
+	mov ebx, 10
+	div ebx
+    mov deletelinie, eax
+	
+final:
+	popa
+	mov esp, ebp
+	pop ebp
+	ret
+linie_plina endp
+
+deleteline2 proc
+    push ebp
+	mov ebp, esp
+	pusha
+	
+	mov ecx, 169
+	mov eax, deletelinie
+	mov ebx, 10
+	mul ebx
+	sub ecx, eax
+	
+	
+bucla1:	
+    mov index, ecx
+    push ecx
+	mov ecx, 100
+	
+scade:
+	mov eax, 280
+	sub eax, 10
+	add eax, index
+	mov ebx, area_width
+	mul ebx
+	add eax, 200
+	add eax, ecx
+	dec eax
+	shl eax, 2 
+	add eax, area
+	mov esi, eax
+	
+	mov eax, 280
+	add eax, index
+	mov ebx, area_width
+	mul ebx
+	add eax, 200
+	add eax, ecx
+	dec eax
+	shl eax, 2 
+	add eax, area
+	mov ebx, dword ptr[esi]
+	mov  dword ptr[eax], ebx
+	loop scade
+	pop ecx
+	loop bucla1
+	
+	
+    popa
+	mov esp, ebp
+	pop ebp
+	ret
+deleteline2 endp
+
+rotire proc 
+    mov ecx, 30
+	
+rotire1:
+   push ecx
+   mov ecx,20
+   
+rotire2:
+    mov eax, pozitie_y
+	mov newx, eax
+	mov ebx, pozitie_x
+	mov newy, ebx
+	add pozitie_x,1
+	loop rotire2
+	add pozitie_y, 1
+	pop ecx
+	loop rotire1
+
+rotire endp
+
+line_horizontal macro x, y, len, color
+LOCAL bucla_lnie
+mov eax, y ;eax = y
+mov ebx, area_width
+mul ebx ;eax = y * eria_width
+add eax,x
+shl eax, 2
+add eax, area
+mov ecx, len
+bucla_lnie:
+mov dword ptr[eax],color
+add eax, 4
+loop bucla_lnie
+endm
+
+line_vertical macro x, y, len, color
+LOCAL bucla_lnie
+mov eax, y ;eax = y
+mov ebx, area_width
+mul ebx ;eax = y * eria_width
+add eax,x
+shl eax, 2
+add eax, area
+mov ecx, len
+bucla_lnie:
+mov dword ptr[eax],color
+add eax, area_width * 4
+loop bucla_lnie
+endm
+
+; functia de desenare - se apeleaza la fiecare click
+; sau la fiecare interval de 200ms in care nu s-a dat click
+; arg1 - evt (0 - initializare, 1 - click, 2 - s-a scurs intervalul fara click, 3 - s-a apasat o tasta)
+; arg2 - x (in cazul apasarii unei taste, x contine codul ascii al tastei care a fost apasata)
+; arg3 - y
+rotate_piece proc
+    ; Code for rotating the current piece goes here
+    ; You can use the existing `rotire` procedure or implement your own rotation logic
+    ; Update the canvas after rotating the piece
+    mov eax, piesa
+    add eax, 5
+    make_pece_macro eax, area, pozitie_x, pozitie_y
+    call rotire  ; Assuming you have a procedure for rotation called rotire
+    mov eax, piesa
+    make_pece_macro eax, area, pozitie_x, pozitie_y
+    ret
+rotate_piece endp
+
+
+draw proc
+	push ebp
+	mov ebp, esp
+	pusha
+	
+	mov eax, [ebp+arg1]
+	cmp eax, 1
+	jz evt_click
+	cmp eax, 2
+	jz evt_timer ; nu s-a efectuat click pe nimic
+	cmp eax, 3
+	jz evet_kaybord
+	;mai jos e codul care intializeaza fereastra cu pixeli albi
+	
+	mov eax, area_width
+	mov ebx, area_height
+	mul ebx
+	shl eax, 2
+	push eax
+	push 0
+	push area
+	call memset
+	add esp, 12
+	
+	line_horizontal 200, 249, 100, 0ffffffh
+	line_horizontal 200, 450,100, 0ffffffh
+	line_vertical  199, 249, 202,0ffffffh
+	line_vertical  300, 249, 202,0ffffffh
+	
+	make_text_macro 'S', area, 325, 410
+	make_text_macro 'C', area, 335, 410
+	make_text_macro 'O', area, 345, 410
+	make_text_macro 'R', area, 355, 410
+	
+	make_text_macro 'T', area, 220, 220
+	make_text_macro 'E', area, 230, 220
+	make_text_macro 'T', area, 240, 220
+	make_text_macro 'R', area, 250, 220
+	make_text_macro 'I', area, 260, 220
+	make_text_macro 'S', area, 270, 220
+	
+	Randpiesa piesa
+	Randpiesa piesanext
+	
+	jmp afisare_litere
+	
+	
+	
+evt_click:
+	
+	
+	
+bucla_linii:
+	mov eax, [ebp+arg2]
+	and eax, 0FFh
+	
+	mul eax
+	mul eax
+	add eax, ecx
+	push ecx
+	mov ecx, area_width
+bucla_coloane:
+	mov [edi], eax
+	add edi, 4
+	add eax, ebx
+	loop bucla_coloane
+	pop ecx
+	loop bucla_linii
+	jmp afisare_litere
+	
+	
+evet_kaybord:
+mov eax, [ebp + arg2]
+cmp eax, 'A'
+je miscare_stanga
+cmp eax, 'D'
+je miscare_dreapta
+je rotate_key_pressed        
+jmp afisare_litere
+
+
+
+rotate_key_pressed:
+  call rotate_piece
+  jmp afisare_litere
+
+
+miscare_stanga:
+ mov stanga, 0
+ call stop_piesastanga
+ cmp stanga,0
+ je stanga11
+ jmp afisare_litere
+ stanga11:
+ mov eax, piesa
+	add eax, 5
+ make_pece_macro eax, area, pozitie_x, pozitie_y
+	sub pozitie_x , 10
+	make_pece_macro piesa, area, pozitie_x, pozitie_y
+ jmp afisare_litere
+ 
+ 
+ 
+ miscare_dreapta:
+ mov dreapta, 0
+ call stop_piesadreapta
+ cmp dreapta,0
+ je dreapta11
+ jmp afisare_litere
+dreapta11:
+ mov eax, piesa
+	add eax, 5
+ make_pece_macro eax, area, pozitie_x, pozitie_y
+	 add pozitie_x , 10
+	make_pece_macro piesa, area, pozitie_x, pozitie_y
+ jmp afisare_litere
+
+jmp afisare_litere
+
+
+
+evt_timer:
+    cmp jocterminat,1
+	je final_draw
+
+    call stop_piesa
+	cmp op, 1
+	je stop_piesa1
+	mov eax, piesa
+	add eax, 5
+	
+	make_pece_macro piesanext, area, 335, 250
+
+	
+	; make_pece_macro piesa, area, 350, 350
+	; make_pece_macro eax, area, 350, 350
+	
+    make_pece_macro eax, area, pozitie_x, pozitie_y
+	 add pozitie_y , 10
+	make_pece_macro piesa , area, pozitie_x, pozitie_y
+	
+	jmp  stopu
+	
+stop_piesa1:
+cmp pozitie_y,250
+jg Gameover1
+mov jocterminat,1
+call gameover
+Gameover1:
+
+mov ecx,3 
+bucla2:
+call  linie_plina
+cmp deletelinie,20
+je sterge3
+call deleteline2
+inc scor
+mov deletelinie,20
+loop bucla2
+sterge3:
+
+mov eax, piesanext
+mov piesa, eax 
+make_pece_macro 10, area, 335, 250
+Randpiesa piesanext
+mov op, 0
+mov pozitie_x ,240
+mov pozitie_y, 250
+
+
+
+stopu:
+	inc counter
+	
+afisare_litere:
+	;afisam valoarea counter-ului curent (sute, zeci si unitati)
+	mov ebx, 10
+	mov eax, counter
+	;cifra unitatilor
+	mov edx, 0
+	div ebx
+	add edx, '0'
+	make_text_macro edx, area, 30, 10
+	;cifra zecilor
+	mov edx, 0
+	div ebx
+	add edx, '0'
+	make_text_macro edx, area, 20, 10
+	;cifra sutelor
+	mov edx, 0
+	div ebx
+	add edx, '0'
+	make_text_macro edx, area, 10, 10
+	
+	mov ebx, 10
+	mov eax, scor
+	;cifra unitatilor
+	mov edx, 0
+	div ebx
+	add edx, '0'
+	make_text_macro edx, area, 350, 430
+	;cifra zecilor
+	mov edx, 0
+	div ebx
+	add edx, '0'
+	make_text_macro edx, area, 340, 430
+	;cifra sutelor
+	mov edx, 0
+	div ebx
+	add edx, '0'
+	make_text_macro edx, area, 330, 430
+	
+
+final_draw:
+	popa
+	mov esp, ebp
+	pop ebp
+	ret
+draw endp
+
+start:
+	;alocam memorie pentru zona de desenat
+	mov eax, area_width
+	mov ebx, area_height
+	mul ebx
+	shl eax, 2
+	push eax
+	call malloc
+	add esp, 4
+	mov area, eax
+	;apelam functia de desenare a ferestrei
+	; typedef void (*DrawFunc)(int evt, int x, int y);
+	; void __cdecl BeginDrawing(const char *title, int width, int height, unsigned int *area, DrawFunc draw);
+	push offset draw
+	push area
+	push area_height
+	push area_width
+	push offset window_title
+	call BeginDrawing
+	add esp, 20
+	
+theend:
+	push 0
+	call exit
+end start
